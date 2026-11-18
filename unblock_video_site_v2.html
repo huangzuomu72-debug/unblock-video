@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#10131b">
+  <title>UNBLOCK VIDEO</title>
+  <style>
+    :root { color-scheme: dark; --bg:#10131b; --panel:#1a2030; --muted:#aab3c5; --accent:#8795ff; }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; background:radial-gradient(ellipse at top,#252d48 0,#10131b 58%); color:#f5f7ff; }
+    header { padding:28px 18px 12px; text-align:center; }
+    .logo { font-size:clamp(28px,6vw,42px); font-weight:850; letter-spacing:-1.5px; }
+    .logo span { color:var(--accent); }
+    header p { color:var(--muted); margin:8px 0 0; }
+    main { width:min(1000px,calc(100% - 28px)); margin:24px auto 48px; }
+    .panel { background:rgba(26,32,48,.95); border:1px solid #303950; border-radius:18px; padding:20px; margin:16px 0; box-shadow:0 12px 36px #0003; }
+    h2 { font-size:18px; margin:0 0 14px; }
+    .searchrow { display:flex; gap:10px; }
+    input { min-width:0; flex:1; padding:14px 15px; border-radius:11px; border:1px solid #3a4560; background:#111725; color:white; font-size:16px; outline:none; }
+    input:focus { border-color:var(--accent); }
+    button { border:0; border-radius:11px; padding:13px 18px; font-size:15px; font-weight:750; color:#10131b; background:var(--accent); cursor:pointer; }
+    button:disabled { opacity:.55; cursor:wait; }
+    .secondary { background:#303b55; color:#f5f7ff; }
+    .hint { color:var(--muted); font-size:13px; line-height:1.6; margin:10px 2px 0; }
+    .status { min-height:22px; color:#ffd0ad; font-size:13px; margin-top:10px; line-height:1.5; }
+    .results { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:16px; }
+    .video { overflow:hidden; border:1px solid #303950; border-radius:14px; background:#111725; }
+    .video img { width:100%; display:block; aspect-ratio:16/9; object-fit:cover; background:#080b12; }
+    .videoInfo { padding:12px; }
+    .video h3 { margin:0 0 7px; font-size:15px; line-height:1.45; }
+    .channel { color:var(--muted); font-size:12px; margin-bottom:11px; }
+    .video button { width:100%; padding:10px; }
+    .player { width:100%; aspect-ratio:16/9; background:#080b12; border-radius:14px; overflow:hidden; display:grid; place-items:center; border:1px solid #303950; }
+    iframe { width:100%; height:100%; border:0; }
+    .placeholder { color:#8792a9; text-align:center; padding:20px; }
+    .apirow { display:flex; gap:10px; }
+    .apirow input { font-size:14px; }
+    .empty { color:#8e98ad; text-align:center; padding:24px 8px; border:1px dashed #3a4560; border-radius:12px; grid-column:1/-1; }
+    footer { color:#8e98ad; text-align:center; font-size:12px; padding:0 18px 28px; line-height:1.7; }
+    @media(max-width:600px) { .searchrow,.apirow { flex-direction:column; } .searchrow button,.apirow button { width:100%; } .panel { padding:16px; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">UNBLOCK <span>VIDEO</span></div>
+    <p>動画を検索して、サイト内で再生しよう。</p>
+  </header>
+  <main>
+    <section class="panel">
+      <h2>🔑 YouTube APIキー</h2>
+      <div class="apirow">
+        <input id="apiKey" type="password" placeholder="YouTube Data API v3 のAPIキーを入力" autocomplete="off">
+        <button id="saveKey" class="secondary" type="button">このページで使う</button>
+      </div>
+      <p class="hint">検索機能を使うにはGoogle CloudでYouTube Data API v3を有効にして、APIキーを用意する必要があります。キーはこのページを開いている間だけ使い、保存しません。</p>
+      <div id="apiStatus" class="status" role="status"></div>
+    </section>
+
+    <section class="panel">
+      <h2>🔎 動画を検索</h2>
+      <form id="searchForm" class="searchrow">
+        <input id="searchInput" type="search" placeholder="見たい動画を入力…" autocomplete="off" required>
+        <button id="searchButton" type="submit">検索</button>
+      </form>
+      <div id="searchStatus" class="status" role="status"></div>
+    </section>
+
+    <section class="panel">
+      <h2>検索結果</h2>
+      <div id="results" class="results"><div class="empty">キーワードを入力して検索してね。</div></div>
+    </section>
+
+    <section class="panel">
+      <h2>▶ URLから再生</h2>
+      <form id="playForm" class="searchrow">
+        <input id="urlInput" type="url" placeholder="https://www.youtube.com/watch?v=..." autocomplete="url" required>
+        <button type="submit">再生する</button>
+      </form>
+      <div id="urlStatus" class="status" role="status"></div>
+    </section>
+
+    <section class="panel">
+      <h2>動画プレーヤー</h2>
+      <div id="player" class="player"><div class="placeholder">検索結果から動画を選ぶと、ここで再生できるよ。</div></div>
+    </section>
+  </main>
+  <footer>
+    YouTube Data API v3 を使った検索デモです。APIキーを第三者に公開しないでください。<br>
+    動画側で埋め込みが禁止されている場合や、ネットワークでYouTubeが制限されている場合は再生できません。
+  </footer>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    let apiKey = '';
+
+    $('saveKey').addEventListener('click', () => {
+      apiKey = $('apiKey').value.trim();
+      $('apiStatus').textContent = apiKey ? 'このページでAPIキーを使えるようにしました。' : 'APIキーを入力してね。';
+    });
+
+    $('searchForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const q = $('searchInput').value.trim();
+      if (!apiKey) {
+        $('searchStatus').textContent = '先にYouTube APIキーを入力して「このページで使う」を押してね。';
+        return;
+      }
+      if (!q) return;
+      $('searchButton').disabled = true;
+      $('searchStatus').textContent = '検索中…';
+      $('results').replaceChildren();
+      try {
+        const params = new URLSearchParams({
+          part: 'snippet', type: 'video', maxResults: '12',
+          q, key: apiKey, safeSearch: 'moderate'
+        });
+        const response = await fetch('https://www.googleapis.com/youtube/v3/search?' + params);
+        const data = await response.json();
+        if (!response.ok) {
+          const reason = data?.error?.errors?.[0]?.reason || '';
+          if (reason === 'keyInvalid') throw new Error('APIキーが正しくないみたい。入力を確認してね。');
+          if (reason === 'quotaExceeded') throw new Error('今日のAPI利用上限に達したみたい。時間をおいて試してね。');
+          if (reason === 'accessNotConfigured') throw new Error('Google CloudでYouTube Data API v3が有効になっているか確認してね。');
+          throw new Error(data?.error?.message || '検索に失敗しました。API設定を確認してね。');
+        }
+        const items = data.items || [];
+        if (!items.length) {
+          $('results').innerHTML = '<div class="empty">動画が見つからなかったよ。別の言葉で検索してみてね。</div>';
+        } else {
+          for (const item of items) {
+            const id = item.id?.videoId;
+            if (!id) continue;
+            const snippet = item.snippet || {};
+            const card = document.createElement('article');
+            card.className = 'video';
+            const img = document.createElement('img');
+            img.src = snippet.thumbnails?.medium?.url || snippet.thumbnails?.default?.url || '';
+            img.alt = '';
+            img.loading = 'lazy';
+            const info = document.createElement('div');
+            info.className = 'videoInfo';
+            const title = document.createElement('h3');
+            title.textContent = snippet.title || 'タイトルなし';
+            const channel = document.createElement('div');
+            channel.className = 'channel';
+            channel.textContent = snippet.channelTitle || '';
+            const play = document.createElement('button');
+            play.type = 'button';
+            play.textContent = '▶ この動画を再生';
+            play.addEventListener('click', () => playVideo(id));
+            info.append(title, channel, play);
+            card.append(img, info);
+            $('results').append(card);
+          }
+        }
+        $('searchStatus').textContent = `${items.length}件の検索結果`;
+      } catch (error) {
+        $('searchStatus').textContent = error.message || '通信エラーが発生しました。';
+        $('results').innerHTML = '<div class="empty">検索結果を表示できませんでした。</div>';
+      } finally {
+        $('searchButton').disabled = false;
+      }
+    });
+
+    function playVideo(id) {
+      const iframe = document.createElement('iframe');
+      iframe.src = 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id);
+      iframe.title = 'YouTube video player';
+      iframe.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share';
+      iframe.allowFullscreen = true;
+      iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+      $('player').replaceChildren(iframe);
+      $('urlStatus').textContent = '';
+      $('player').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function getVideoId(rawUrl) {
+      let url;
+      try { url = new URL(rawUrl); } catch { return null; }
+      const host = url.hostname.replace(/^www\./, '').toLowerCase();
+      if (host === 'youtu.be') return url.pathname.split('/').filter(Boolean)[0] || null;
+      if (!['youtube.com','m.youtube.com','youtube-nocookie.com'].includes(host)) return null;
+      if (url.pathname === '/watch') return url.searchParams.get('v');
+      const parts = url.pathname.split('/').filter(Boolean);
+      if (['embed','shorts','live'].includes(parts[0])) return parts[1] || null;
+      return null;
+    }
+
+    $('playForm').addEventListener('submit', event => {
+      event.preventDefault();
+      const id = getVideoId($('urlInput').value.trim());
+      if (!id || !/^[a-zA-Z0-9_-]{6,}$/.test(id)) {
+        $('urlStatus').textContent = 'YouTubeの動画URLを確認してね。';
+        return;
+      }
+      playVideo(id);
+    });
+  </script>
+</body>
+</html>
